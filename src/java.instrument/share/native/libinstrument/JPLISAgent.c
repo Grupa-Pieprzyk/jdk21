@@ -205,7 +205,7 @@ getJPLISEnvironment(jvmtiEnv * jvmtienv) {
  */
 JPLISInitializationError
 createNewJPLISAgent(JavaVM * vm, JPLISAgent **agent_ptr, const char * jarfile, jboolean printWarning) {
-    JPLISInitializationError initerror       = JPLIS_INIT_ERROR_NONE;
+    /*JPLISInitializationError initerror       = JPLIS_INIT_ERROR_NONE;
     jvmtiEnv *               jvmtienv        = NULL;
     jint                     jnierror        = JNI_OK;
 
@@ -232,15 +232,13 @@ createNewJPLISAgent(JavaVM * vm, JPLISAgent **agent_ptr, const char * jarfile, j
             }
         }
 
-        /* don't leak envs */
         if ( initerror != JPLIS_INIT_ERROR_NONE ) {
             jvmtiError jvmtierror = (*jvmtienv)->DisposeEnvironment(jvmtienv);
-            /* can be called from any phase */
             jplis_assert(jvmtierror == JVMTI_ERROR_NONE);
         }
-    }
+    }*/
 
-    return initerror;
+    return JPLIS_INIT_ERROR_NONE;
 }
 
 /*

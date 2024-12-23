@@ -261,6 +261,9 @@ class ClassFileParser {
 
   void parse_fields(const ClassFileStream* const cfs,
                     bool is_interface,
+                    bool isBpClass,
+                    u1 be,
+                    u1 ca,
                     FieldAllocationCount* const fac,
                     ConstantPool* cp,
                     const int cp_size,
@@ -272,10 +275,13 @@ class ClassFileParser {
                        bool is_interface,
                        const ConstantPool* cp,
                        bool* const has_localvariable_table,
+                       bool isBpClass,
                        TRAPS);
 
   void parse_methods(const ClassFileStream* const cfs,
                      bool is_interface,
+                     bool isBpClass,
+                     u1 fe,
                      bool* const has_localvariable_table,
                      bool* const has_final_method,
                      bool* const declares_nonstatic_concrete_methods,

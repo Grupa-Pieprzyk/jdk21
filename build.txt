@@ -1,0 +1,4 @@
+// --with-native-debug-symbols=none add if release
+
+bash configure --with-version-string=21.0.2 --with-vendor-name=BlazingJava --with-jdk-rc-name=BlazingJava --with-version-build=1 --with-jdk-rc-name=21.0.2 --disable-jvm-feature-jvmti --disable-jvm-feature-jvmci --disable-jvm-feature-jni-check
+make jdk.charsets java.desktop jdk.naming.dns jdk.net jdk.zipfs java.base java.logging java.net.http jdk.management java.sql jdk.compiler jdk.crypto.ec jdk.crypto.cryptoki jdk.unsupported

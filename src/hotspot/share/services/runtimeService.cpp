@@ -69,7 +69,7 @@ void RuntimeService::init() {
     size_t len = sizeof(capabilities);
     memset((void*) capabilities, '0', len);
     capabilities[len-1] = '\0';
-    capabilities[0] = AttachListener::is_attach_supported() ? '1' : '0';
+    capabilities[0] = '0';
 #if INCLUDE_SERVICES
     capabilities[1] = '1';
 #endif // INCLUDE_SERVICES

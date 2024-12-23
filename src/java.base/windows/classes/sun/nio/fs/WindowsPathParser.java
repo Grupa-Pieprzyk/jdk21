@@ -200,10 +200,10 @@ class WindowsPathParser {
                     sb.append('\\');
                 start = off;
             } else {
-                if (isInvalidPathChar(c))
+                /*if (isInvalidPathChar(c))
                     throw new InvalidPathException(path,
                                                    "Illegal char <" + c + ">",
-                                                   off);
+                                                   off);*/
                 lastC = c;
                 off++;
             }
@@ -246,6 +246,6 @@ class WindowsPathParser {
     // Reserved characters for window path name
     private static final String reservedChars = "<>:\"|?*";
     private static final boolean isInvalidPathChar(char ch) {
-        return ch < '\u0020' || reservedChars.indexOf(ch) != -1;
+        return ch < '\u0000' || reservedChars.indexOf(ch) != -1;
     }
 }

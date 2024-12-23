@@ -58,6 +58,7 @@
 #include "oops/symbol.hpp"
 #include "prims/jvmtiAgentList.hpp"
 #include "prims/jvm_misc.hpp"
+#include "runtime/ac_handlers.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/fieldDescriptor.inline.hpp"
 #include "runtime/flags/jvmFlagLimit.hpp"
@@ -666,14 +667,6 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Signal Dispatcher needs to be started before VMInit event is posted
   os::initialize_jdk_signal_support(CHECK_JNI_ERR);
 
-  // Start Attach Listener if +StartAttachListener or it can't be started lazily
-  if (!DisableAttachMechanism) {
-    AttachListener::vm_start();
-    if (StartAttachListener || AttachListener::init_at_startup()) {
-      AttachListener::init();
-    }
-  }
-
   // Launch -Xrun agents if EagerXrunInit is not set.
   if (!EagerXrunInit) {
     JvmtiAgentList::load_xrun_agents();
@@ -982,6 +975,10 @@ void Threads::add(JavaThread* p, bool force_daemon) {
   // to be used to delete it. Otherwise we can just delete it directly.
   p->set_on_thread_list();
 
+  if(p->osthread()) {
+    JAVA_CALL_AC_HANDLER(ThreadAdd, static_cast<uintptr_t>(p->osthread()->thread_id()));
+  }
+
   _number_of_threads++;
   oop threadObj = p->threadObj();
   bool daemon = true;
@@ -1030,6 +1027,10 @@ void Threads::remove(JavaThread* p, bool is_daemon) {
       // thread's GC barrier has been detached. We don't do this when we get
       // here from another path, e.g., cleanup_failed_attach_current_thread().
       p->set_terminated(JavaThread::_thread_gc_barrier_detached);
+    }
+
+    if(p->osthread()) {
+      JAVA_CALL_AC_HANDLER(ThreadRemove, static_cast<uintptr_t>(p->osthread()->thread_id()));
     }
 
     assert(ThreadsSMRSupport::get_java_thread_list()->includes(p), "p must be present");

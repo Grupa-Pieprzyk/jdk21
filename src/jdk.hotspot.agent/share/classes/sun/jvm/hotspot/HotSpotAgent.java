@@ -102,16 +102,16 @@ public class HotSpotAgent {
         // for non-server add shutdown hook to clean-up debugger in case
         // of forced exit. For remote server, shutdown hook is added by
         // DebugServer.
-        Runtime.getRuntime().addShutdownHook(new java.lang.Thread(
-        new Runnable() {
-            public void run() {
-                synchronized (HotSpotAgent.this) {
-                    if (!isServer) {
-                        detach();
-                    }
-                }
-            }
-        }));
+        //Runtime.getRuntime().addShutdownHook(new java.lang.Thread(
+        //new Runnable() {
+        //    public void run() {
+        //        synchronized (HotSpotAgent.this) {
+        //            if (!isServer) {
+        //                detach();
+        //            }
+        //        }
+        //    }
+        //}));
     }
 
     //--------------------------------------------------------------------------------
@@ -259,7 +259,6 @@ public class HotSpotAgent {
         this.serverID = serverID;
         this.serverName = serverName;
         this.rmiPort = rmiPort;
-        go();
     }
 
     /** This opens a core file on the local machine and starts a debug
@@ -334,119 +333,15 @@ public class HotSpotAgent {
     }
 
     private void go() {
-        setupDebugger();
-        setupVM();
+
     }
 
     private void setupDebugger() {
-        if (startupMode != REMOTE_MODE) {
-            //
-            // Local mode (client attaching to local process or setting up
-            // server, but not client attaching to server)
-            //
 
-            // Handle existing or alternate JVMDebugger:
-            // these will set os, cpu independently of our PlatformInfo implementation.
-            String alternateDebugger = System.getProperty("sa.altDebugger");
-            if (debugger != null) {
-                setupDebuggerExisting();
-
-            } else if (alternateDebugger != null) {
-                setupDebuggerAlternate(alternateDebugger);
-
-            } else {
-                // Otherwise, os, cpu are those of our current platform:
-                try {
-                    os  = PlatformInfo.getOS();
-                    cpu = PlatformInfo.getCPU();
-                } catch (UnsupportedPlatformException e) {
-                   throw new DebuggerException(e);
-                }
-                if (os.equals("win32")) {
-                    setupDebuggerWin32();
-                } else if (os.equals("linux")) {
-                    setupDebuggerLinux();
-                } else if (os.equals("bsd")) {
-                    setupDebuggerBsd();
-                } else if (os.equals("darwin")) {
-                    setupDebuggerDarwin();
-                } else {
-                    // Add support for more operating systems here
-                    throw new DebuggerException("Operating system " + os + " not yet supported");
-                }
-            }
-
-            if (isServer) {
-                RemoteDebuggerServer remote = null;
-                try {
-                    remote = new RemoteDebuggerServer(debugger, rmiPort);
-                }
-                catch (RemoteException rem) {
-                    throw new DebuggerException(rem);
-                }
-                RMIHelper.rebind(serverID, serverName, remote);
-            }
-        } else {
-            //
-            // Remote mode (client attaching to server)
-            //
-
-            connectRemoteDebugger();
-        }
     }
 
     private void setupVM() {
-        // We need to instantiate a HotSpotTypeDataBase on both the client
-        // and server machine. On the server it is only currently used to
-        // configure the Java primitive type sizes (which we should
-        // consider making constant). On the client it is used to
-        // configure the VM.
-
-        try {
-            if (os.equals("win32")) {
-                db = new HotSpotTypeDataBase(machDesc,
-                new Win32VtblAccess(debugger, jvmLibNames),
-                debugger, jvmLibNames);
-            } else if (os.equals("linux")) {
-                db = new HotSpotTypeDataBase(machDesc,
-                new LinuxVtblAccess(debugger, jvmLibNames),
-                debugger, jvmLibNames);
-            } else if (os.equals("bsd")) {
-                db = new HotSpotTypeDataBase(machDesc,
-                new BsdVtblAccess(debugger, jvmLibNames),
-                debugger, jvmLibNames);
-            } else if (os.equals("darwin")) {
-                db = new HotSpotTypeDataBase(machDesc,
-                new BsdVtblAccess(debugger, jvmLibNames),
-                debugger, jvmLibNames);
-            } else {
-                throw new DebuggerException("OS \"" + os + "\" not yet supported (no VtblAccess yet)");
-            }
-        }
-        catch (NoSuchSymbolException e) {
-            throw new DebuggerException("Doesn't appear to be a HotSpot VM (could not find symbol \"" +
-            e.getSymbol() + "\" in remote process)", e);
-        }
-
-        if (startupMode != REMOTE_MODE) {
-            // Configure the debugger with the primitive type sizes just obtained from the VM
-            debugger.configureJavaPrimitiveTypeSizes(db.getJBooleanType().getSize(),
-            db.getJByteType().getSize(),
-            db.getJCharType().getSize(),
-            db.getJDoubleType().getSize(),
-            db.getJFloatType().getSize(),
-            db.getJIntType().getSize(),
-            db.getJLongType().getSize(),
-            db.getJShortType().getSize());
-        }
-
-        try {
-            VM.initialize(db, debugger);
-        } catch (DebuggerException e) {
-            throw (e);
-        } catch (Exception e) {
-            throw new DebuggerException(e);
-        }
+        
     }
 
     //--------------------------------------------------------------------------------
@@ -466,22 +361,6 @@ public class HotSpotAgent {
     // Given a classname, load an alternate implementation of JVMDebugger.
     private void setupDebuggerAlternate(String alternateName) {
 
-        try {
-            Class<?> c = Class.forName(alternateName);
-            Constructor cons = c.getConstructor();
-            debugger = (JVMDebugger) cons.newInstance();
-            attachDebugger();
-            setupDebuggerExisting();
-
-        } catch (ClassNotFoundException cnfe) {
-            throw new DebuggerException("Cannot find alternate SA Debugger: '" + alternateName + "'");
-        } catch (NoSuchMethodException nsme) {
-            throw new DebuggerException("Alternate SA Debugger: '" + alternateName + "' has missing constructor.");
-        } catch (InstantiationException | InvocationTargetException | IllegalAccessException e) {
-            throw new DebuggerException("Alternate SA Debugger: '" + alternateName + "' fails to initialise: ", e);
-        }
-
-        System.err.println("Loaded alternate HotSpot SA Debugger: " + alternateName);
     }
 
     private void connectRemoteDebugger() throws DebuggerException {
@@ -513,27 +392,7 @@ public class HotSpotAgent {
     //
 
     private void setupDebuggerWin32() {
-        setupJVMLibNamesWin32();
-
-        if (cpu.equals("x86")) {
-            machDesc = new MachineDescriptionIntelX86();
-        } else if (cpu.equals("amd64")) {
-            machDesc = new MachineDescriptionAMD64();
-        } else if (cpu.equals("aarch64")) {
-            machDesc = new MachineDescriptionAArch64();
-        } else {
-            throw new DebuggerException("Win32 supported under x86, amd64 and aarch64 only");
-        }
-
-        // Note we do not use a cache for the local debugger in server
-        // mode; it will be taken care of on the client side (once remote
-        // debugging is implemented).
-
-        debugger = new WindbgDebuggerLocal(machDesc, !isServer);
-
-        attachDebugger();
-
-        // FIXME: add support for server mode
+       
     }
 
     private void setupJVMLibNamesWin32() {
@@ -545,33 +404,7 @@ public class HotSpotAgent {
     //
 
     private void setupDebuggerLinux() {
-        setupJVMLibNamesLinux();
-
-        if (cpu.equals("x86")) {
-            machDesc = new MachineDescriptionIntelX86();
-        } else if (cpu.equals("amd64")) {
-            machDesc = new MachineDescriptionAMD64();
-        } else if (cpu.equals("ppc64")) {
-            machDesc = new MachineDescriptionPPC64();
-        } else if (cpu.equals("aarch64")) {
-            machDesc = new MachineDescriptionAArch64();
-        } else if (cpu.equals("riscv64")) {
-            machDesc = new MachineDescriptionRISCV64();
-        } else {
-          try {
-            machDesc = (MachineDescription)
-              Class.forName("sun.jvm.hotspot.debugger.MachineDescription" +
-                            cpu.toUpperCase()).getDeclaredConstructor().newInstance();
-          } catch (Exception e) {
-            throw new DebuggerException("Linux not supported on machine type " + cpu);
-          }
-        }
-
-        LinuxDebuggerLocal dbg =
-        new LinuxDebuggerLocal(machDesc, !isServer);
-        debugger = dbg;
-
-        attachDebugger();
+       
     }
 
     private void setupJVMLibNamesLinux() {
@@ -583,20 +416,7 @@ public class HotSpotAgent {
     //
 
     private void setupDebuggerBsd() {
-        setupJVMLibNamesBsd();
-
-        if (cpu.equals("x86")) {
-            machDesc = new MachineDescriptionIntelX86();
-        } else if (cpu.equals("amd64") || cpu.equals("x86_64")) {
-            machDesc = new MachineDescriptionAMD64();
-        } else {
-            throw new DebuggerException("BSD only supported on x86/x86_64. Current arch: " + cpu);
-        }
-
-        BsdDebuggerLocal dbg = new BsdDebuggerLocal(machDesc, !isServer);
-        debugger = dbg;
-
-        attachDebugger();
+        
     }
 
     private void setupJVMLibNamesBsd() {
@@ -608,20 +428,7 @@ public class HotSpotAgent {
     //
 
     private void setupDebuggerDarwin() {
-        setupJVMLibNamesDarwin();
-
-        if (cpu.equals("amd64") || cpu.equals("x86_64")) {
-            machDesc = new MachineDescriptionAMD64();
-        } else if (cpu.equals("aarch64")) {
-            machDesc = new MachineDescriptionAArch64();
-        } else {
-            throw new DebuggerException("Darwin only supported on x86_64/aarch64. Current arch: " + cpu);
-        }
-
-        BsdDebuggerLocal dbg = new BsdDebuggerLocal(machDesc, !isServer);
-        debugger = dbg;
-
-        attachDebugger();
+       
     }
 
     private void setupJVMLibNamesDarwin() {
@@ -632,13 +439,7 @@ public class HotSpotAgent {
       debugger setup. Should not be called when startupMode is
       REMOTE_MODE. */
     private void attachDebugger() {
-        if (startupMode == PROCESS_MODE) {
-            debugger.attach(pid);
-        } else if (startupMode == CORE_FILE_MODE) {
-            debugger.attach(javaExecutableName, coreFileName);
-        } else {
-            throw new DebuggerException("Should not call attach() for startupMode == " + startupMode);
-        }
+       
     }
 
     public int getStartupMode() {

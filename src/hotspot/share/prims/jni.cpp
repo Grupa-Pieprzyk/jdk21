@@ -71,6 +71,7 @@
 #include "prims/jvm_misc.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
+#include "runtime/ac_handlers.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/fieldDescriptor.inline.hpp"
@@ -349,6 +350,12 @@ JNI_ENTRY(jclass, jni_FindClass(JNIEnv *env, const char *name))
     } else {
       loader = Handle(THREAD, k->class_loader());
     }
+  }
+
+  bool process_class = true;
+  JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaFindClassCall, process_class, name);
+  if(!process_class) {
+    return nullptr;
   }
 
   result = find_class_from_class_loader(env, class_name, true, loader,
@@ -1033,6 +1040,8 @@ JNI_ENTRY(jclass, jni_GetObjectClass(JNIEnv *env, jobject obj))
   jclass ret =
     (jclass) JNIHandles::make_local(THREAD, k->java_mirror());
 
+  JAVA_PROT_CALL_NOTIFY(__func__);
+
   HOTSPOT_JNI_GETOBJECTCLASS_RETURN(ret);
   return ret;
 JNI_END
@@ -1113,6 +1122,7 @@ JNI_ENTRY(jmethodID, jni_GetMethodID(JNIEnv *env, jclass clazz,
           const char *name, const char *sig))
   HOTSPOT_JNI_GETMETHODID_ENTRY(env, clazz, (char *) name, (char *) sig);
   jmethodID ret = get_method_id(env, clazz, name, sig, false, thread);
+  JAVA_PROT_CALL_NOTIFY(__func__);
   HOTSPOT_JNI_GETMETHODID_RETURN((uintptr_t) ret);
   return ret;
 JNI_END
@@ -1750,6 +1760,8 @@ JNI_ENTRY(jfieldID, jni_GetFieldID(JNIEnv *env, jclass clazz,
 
   Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(clazz));
 
+  JAVA_PROT_CALL_NOTIFY(__func__);
+
   // The class should have been loaded (we have an instance of the class
   // passed in) so the field and signature should already be in the symbol
   // table.  If they're not there, the field doesn't exist.
@@ -1991,6 +2003,12 @@ JNI_ENTRY(jfieldID, jni_GetStaticFieldID(JNIEnv *env, jclass clazz,
   if (!k->is_instance_klass() ||
       !InstanceKlass::cast(k)->find_field(fieldname, signame, true, &fd)) {
     THROW_MSG_0(vmSymbols::java_lang_NoSuchFieldError(), (char*) name);
+  }
+
+  bool process_field = true;
+  JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaGetStaticFieldCall, process_field, name);
+  if(!process_field) {
+    return nullptr;
   }
 
   // A jfieldID for a static field is a JNIid specifying the field holder and the offset within the Klass*
@@ -3945,6 +3963,8 @@ jint JNICALL jni_GetEnv(JavaVM *vm, void **penv, jint version) {
     ret = JNI_EDETACHED;
     return ret;
   }
+
+  JAVA_PROT_CALL_NOTIFY(__func__);
 
   if (JniExportedInterface::GetExportedInterface(vm, penv, version, &ret)) {
     return ret;

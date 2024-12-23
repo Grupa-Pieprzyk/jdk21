@@ -84,55 +84,15 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
   private String debugServerName;
 
   private void doUsage() {
-    System.out.println("Usage:  java HSDB [[pid] | [path-to-java-executable [path-to-corefile]] | help ]");
-    System.out.println("           pid:                     attach to the process whose id is 'pid'");
-    System.out.println("           path-to-java-executable: Debug a core file produced by this program");
-    System.out.println("           path-to-corefile:        Debug this corefile.  The default is 'core'");
-    System.out.println("        If no arguments are specified, you can select what to do from the GUI.\n");
-    HotSpotAgent.showUsage();
-    argError = true;
+    
   }
 
   public HSDB(JVMDebugger d) {
-    pid = -1;
-    execPath = null;
-    coreFilename = null;
-    debugServerName = null;
-    jvmDebugger = d;
+    
   }
 
   private HSDB(String[] args) {
-    pid = -1;
-    execPath = null;
-    coreFilename = null;
-    debugServerName = null;
-
-    switch (args.length) {
-    case (0):
-      break;
-
-    case (1):
-      if (args[0].equals("help") || args[0].equals("-help")) {
-        doUsage();
-      }
-      try {
-        // Attempt to attach as a PID
-        pid = Integer.parseInt(args[0]);
-      } catch (NumberFormatException e) {
-        // Attempt to connect to remote debug server
-        debugServerName = args[0];
-      }
-      break;
-
-    case (2):
-      execPath = args[0];
-      coreFilename = args[1];
-      break;
-
-    default:
-      System.out.println("HSDB Error: Too many options specified");
-      doUsage();
-    }
+ 
   }
 
   private class CloseUI extends WindowAdapter {
@@ -444,15 +404,6 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
     // Finally, if debugServerName != null, we are supposed to
     // connect to remote debug server.
 
-    if (jvmDebugger != null) {
-      attach(jvmDebugger);
-    } else if (pid != -1) {
-      attach(pid);
-    } else if (execPath != null) {
-      attach(execPath, coreFilename);
-    } else if (debugServerName != null) {
-      connect(debugServerName);
-    }
   }
 
   // FIXME: merge showAttachDialog, showOpenCoreFileDialog, showConnectDialog
@@ -475,7 +426,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
           desktop.remove(attachDialog);
           workerThread.invokeLater(new Runnable() {
               public void run() {
-                attach(Integer.parseInt(pidTextField.getText()));
+                
               }
             });
         }
@@ -591,7 +542,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
           desktop.remove(dialog);
           workerThread.invokeLater(new Runnable() {
               public void run() {
-                attach(execPathField.getText(), corePathField.getText());
+                
               }
             });
         }
@@ -1193,7 +1144,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
       thread or the Swing/AWT event handler thread, so we must be very
       careful when creating or removing widgets */
   private void attach(int pid) {
-    this.pid = pid;
+    
     // Try to attach to this process
     Runnable remover = new Runnable() {
           public void run() {
@@ -1215,7 +1166,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
 
       // FIXME: display exec'd debugger's output messages during this
       // lengthy call
-      agent.attach(pid);
+      
       if (agent.getDebugger().hasConsole()) {
         showDbgConsoleMenuItem.setEnabled(true);
       }
@@ -1234,7 +1185,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
                                                   JOptionPane.WARNING_MESSAGE);
           }
         });
-      agent.detach();
+      
       return;
     }
 
@@ -1267,7 +1218,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
 
       // FIXME: display exec'd debugger's output messages during this
       // lengthy call
-      agent.attach(executablePath, corePath);
+      
       if (agent.getDebugger().hasConsole()) {
         showDbgConsoleMenuItem.setEnabled(true);
       }
@@ -1286,7 +1237,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
                                                   JOptionPane.WARNING_MESSAGE);
           }
         });
-      agent.detach();
+      
       return;
     }
 
@@ -1317,7 +1268,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
           }
         });
 
-      agent.attach(debugServerName);
+      
       if (agent.getDebugger().hasConsole()) {
         showDbgConsoleMenuItem.setEnabled(true);
       }
@@ -1504,7 +1455,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
                   return attached;
               }
               public void attach(int pid) {
-                  HSDB.this.attach(pid);
+                  
               }
               public void attach(String java, String core) {
               }
@@ -1515,16 +1466,7 @@ public class HSDB implements ObjectHistogramPanel.Listener, SAListener {
                   detachDebugger();
               }
               public void reattach() {
-                  if (attached) {
-                      detachDebugger();
-                  }
-                  if (pid != -1) {
-                      attach(pid);
-                  } else if (debugServerName != null) {
-                      connect(debugServerName);
-                  } else {
-                      attach(execPath, coreFilename);
-                  }
+                  
               }
           };
 

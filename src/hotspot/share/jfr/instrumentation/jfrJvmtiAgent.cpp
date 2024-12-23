@@ -118,7 +118,7 @@ static void log_and_throw(jvmtiError error, TRAPS) {
     ThreadInVMfromNative tvmfn(THREAD);
     const char base_error_msg[] = "JfrJvmtiAgent::retransformClasses failed: ";
     size_t length = sizeof base_error_msg; // includes terminating null
-    const char* const jvmti_error_name = JvmtiUtil::error_name(error);
+    const char* const jvmti_error_name = "NoJvmti";//JvmtiUtil::error_name(error);
     assert(jvmti_error_name != nullptr, "invariant");
     length += strlen(jvmti_error_name);
     char* error_msg = NEW_RESOURCE_ARRAY(char, length);
@@ -143,7 +143,8 @@ static void check_exception_and_log(JNIEnv* env, TRAPS) {
 }
 
 static bool is_valid_jvmti_phase() {
-  return JvmtiEnvBase::get_phase() == JVMTI_PHASE_LIVE;
+  //return JvmtiEnvBase::get_phase() == JVMTI_PHASE_LIVE;
+  return false;
 }
 
 void JfrJvmtiAgent::retransform_classes(JNIEnv* env, jobjectArray classes_array, TRAPS) {

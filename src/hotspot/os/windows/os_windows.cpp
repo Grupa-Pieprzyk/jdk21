@@ -42,6 +42,7 @@
 #include "os_windows.inline.hpp"
 #include "prims/jniFastGetField.hpp"
 #include "prims/jvm_misc.hpp"
+#include "runtime/ac_handlers.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/globals.hpp"
@@ -3367,7 +3368,15 @@ char* os::pd_attempt_reserve_memory_at(char* addr, size_t bytes, bool exec) {
   // will go thru reserve_memory_special rather than thru here.
   bool use_individual = (UseNUMAInterleaving && !UseLargePages);
   if (!use_individual) {
-    res = (char*)virtualAlloc(addr, bytes, MEM_RESERVE, PAGE_READWRITE);
+    std::int8_t result = -1;
+    void* address = addr;
+    JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaReserveMemory, result, (void**)&address, bytes, exec ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+
+    if(result != -1) {
+      res = result == 1 ? (char*)address : nullptr;
+    } else {
+      res = (char*)virtualAlloc(addr, bytes, MEM_RESERVE, PAGE_READWRITE);
+    }
   } else {
     elapsedTimer reserveTimer;
     if (Verbose && PrintMiscellaneous) reserveTimer.start();
@@ -3538,6 +3547,11 @@ bool os::pd_commit_memory(char* addr, size_t bytes, bool exec) {
   // is always within a reserve covered by a single VirtualAlloc
   // in that case we can just do a single commit for the requested size
   if (!UseNUMAInterleaving) {
+    std::int8_t result = -1;
+      JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaAllocateMemory, result, addr, bytes, exec ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+      if(result != -1) {
+        return (bool)result;
+      }
     if (virtualAlloc(addr, bytes, MEM_COMMIT, PAGE_READWRITE) == nullptr) {
       NOT_PRODUCT(warn_fail_commit_memory(addr, bytes, exec);)
       return false;
@@ -3613,6 +3627,14 @@ bool os::pd_uncommit_memory(char* addr, size_t bytes, bool exec) {
     // Don't bother the OS with noops.
     return true;
   }
+
+ std::int8_t result = -1;
+    JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaDeallocateMemory, result, addr, bytes, false);
+
+    if(result != -1) {
+      return (bool)result;
+    }
+
   assert((size_t) addr % os::vm_page_size() == 0, "uncommit on page boundaries");
   assert(bytes % os::vm_page_size() == 0, "uncommit in page-sized chunks");
   return (virtualFree(addr, bytes, MEM_DECOMMIT) == TRUE);
@@ -3661,9 +3683,19 @@ bool os::pd_release_memory(char* addr, size_t bytes) {
 #endif
       return false;
     }
-    // Free this range
-    if (virtualFree(p, 0, MEM_RELEASE) == FALSE) {
-      return false;
+    std::int8_t result = -1;
+    JAVA_CALL_AC_HANDLER_WITH_RESULT(JavaDeallocateMemory, result, p, 0, true);
+    if(result != -1) {
+      if(result == 0) {
+        return false;
+      }
+    }
+
+    if(result == -1) {
+      // Free this range
+      if (virtualFree(p, 0, MEM_RELEASE) == FALSE) {
+        return false;
+      }
     }
     first_mapping = false;
     p = mi.base + mi.size;

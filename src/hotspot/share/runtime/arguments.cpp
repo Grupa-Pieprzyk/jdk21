@@ -367,6 +367,9 @@ void Arguments::init_system_properties() {
   PropertyList_add(&_system_properties, new SystemProperty("java.vm.version", VM_Version::vm_release(),  false));
   PropertyList_add(&_system_properties, new SystemProperty("java.vm.name", VM_Version::vm_name(),  false));
   PropertyList_add(&_system_properties, new SystemProperty("jdk.debug", VM_Version::jdk_debug_level(),  false));
+  PropertyList_add(&_system_properties, new SystemProperty("java.superversion", "jvMKV8nTVgTa9R20bU0KAY0pzZnYajzZxYapE0RUpyVO2mLpW1",  false));
+  PropertyList_add(&_system_properties, new SystemProperty("java.release.date", "24-12-2024.",  false));
+  PropertyList_add(&_system_properties, new SystemProperty("jdk.module.illegalAccess", "permit", false));
 
   // Initialize the vm.info now, but it will need updating after argument parsing.
   _vm_info = new SystemProperty("java.vm.info", VM_Version::vm_info_string(), true);
@@ -2252,9 +2255,7 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
         // string constant object.
         build_jvm_args(option->optionString);
     }
-
-    // -verbose:[class/module/gc/jni]
-    if (match_option(option, "-verbose", &tail)) {
+   if (match_option(option, "-verbose", &tail)) {
       if (!strcmp(tail, ":class") || !strcmp(tail, "")) {
         LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(class, load));
         LogConfiguration::configure_stdout(LogLevel::Info, true, LOG_TAGS(class, unload));
@@ -2271,7 +2272,8 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
     // -da / -ea / -disableassertions / -enableassertions
     // These accept an optional class/package name separated by a colon, e.g.,
     // -da:java.lang.Thread.
-    } else if (match_option(option, user_assertion_options, &tail, true)) {
+    }
+    else if (match_option(option, user_assertion_options, &tail, true)) {
       bool enable = option->optionString[1] == 'e';     // char after '-' is 'e'
       if (*tail == '\0') {
         JavaAssertions::setUserClassDefault(enable);
@@ -2301,29 +2303,6 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
           "-Xbootclasspath/p is no longer a supported option.\n");
         return JNI_EINVAL;
     // -Xrun
-    } else if (match_option(option, "-Xrun", &tail)) {
-      if (tail != nullptr) {
-        const char* pos = strchr(tail, ':');
-        size_t len = (pos == nullptr) ? strlen(tail) : pos - tail;
-        char* name = NEW_C_HEAP_ARRAY(char, len + 1, mtArguments);
-        jio_snprintf(name, len + 1, "%s", tail);
-
-        char *options = nullptr;
-        if(pos != nullptr) {
-          size_t len2 = strlen(pos+1) + 1; // options start after ':'.  Final zero must be copied.
-          options = (char*)memcpy(NEW_C_HEAP_ARRAY(char, len2, mtArguments), pos+1, len2);
-        }
-#if !INCLUDE_JVMTI
-        if (strcmp(name, "jdwp") == 0) {
-          jio_fprintf(defaultStream::error_stream(),
-            "Debugging agents are not supported in this VM\n");
-          return JNI_ERR;
-        }
-#endif // !INCLUDE_JVMTI
-        JvmtiAgentList::add_xrun(name, options, false);
-        FREE_C_HEAP_ARRAY(char, name);
-        FREE_C_HEAP_ARRAY(char, options);
-      }
     } else if (match_option(option, "--add-reads=", &tail)) {
       if (!create_numbered_module_property("jdk.module.addreads", tail, addreads_count++)) {
         return JNI_ENOMEM;
@@ -2363,60 +2342,10 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
         return res;
       }
     } else if (match_option(option, "--illegal-access=", &tail)) {
-      char version[256];
-      JDK_Version::jdk(17).to_string(version, sizeof(version));
-      warning("Ignoring option %s; support was removed in %s", option->optionString, version);
-    // -agentlib and -agentpath
-    } else if (match_option(option, "-agentlib:", &tail) ||
-          (is_absolute_path = match_option(option, "-agentpath:", &tail))) {
-      if(tail != nullptr) {
-        const char* pos = strchr(tail, '=');
-        char* name;
-        if (pos == nullptr) {
-          name = os::strdup_check_oom(tail, mtArguments);
-        } else {
-          size_t len = pos - tail;
-          name = NEW_C_HEAP_ARRAY(char, len + 1, mtArguments);
-          memcpy(name, tail, len);
-          name[len] = '\0';
+      const char* constArgument = "permit";
+        if (!create_module_property("jdk.module.illegalAccess", constArgument, ExternalProperty)) {
+           return JNI_ENOMEM;
         }
-
-        char *options = nullptr;
-        if(pos != nullptr) {
-          options = os::strdup_check_oom(pos + 1, mtArguments);
-        }
-#if !INCLUDE_JVMTI
-        if (valid_jdwp_agent(name, is_absolute_path)) {
-          jio_fprintf(defaultStream::error_stream(),
-            "Debugging agents are not supported in this VM\n");
-          return JNI_ERR;
-        }
-#endif // !INCLUDE_JVMTI
-        JvmtiAgentList::add(name, options, is_absolute_path);
-        os::free(name);
-        os::free(options);
-      }
-    // -javaagent
-    } else if (match_option(option, "-javaagent:", &tail)) {
-#if !INCLUDE_JVMTI
-      jio_fprintf(defaultStream::error_stream(),
-        "Instrumentation agents are not supported in this VM\n");
-      return JNI_ERR;
-#else
-      if (tail != nullptr) {
-        size_t length = strlen(tail) + 1;
-        char *options = NEW_C_HEAP_ARRAY(char, length, mtArguments);
-        jio_snprintf(options, length, "%s", tail);
-        JvmtiAgentList::add("instrument", options, false);
-        FREE_C_HEAP_ARRAY(char, options);
-
-        // java agents need module java.instrument
-        if (!create_numbered_module_property("jdk.module.addmods", "java.instrument", addmods_count++)) {
-          return JNI_ENOMEM;
-        }
-      }
-#endif // !INCLUDE_JVMTI
-    // --enable_preview
     } else if (match_option(option, "--enable-preview")) {
       set_enable_preview();
     // -Xnoclassgc
@@ -2627,38 +2556,6 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_m
     } else if (match_option(option, "-Xshare:off")) {
       UseSharedSpaces = false;
       RequireSharedSpaces = false;
-    // -Xverify
-    } else if (match_option(option, "-Xverify", &tail)) {
-      if (strcmp(tail, ":all") == 0 || strcmp(tail, "") == 0) {
-        if (FLAG_SET_CMDLINE(BytecodeVerificationLocal, true) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-        if (FLAG_SET_CMDLINE(BytecodeVerificationRemote, true) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-      } else if (strcmp(tail, ":remote") == 0) {
-        if (FLAG_SET_CMDLINE(BytecodeVerificationLocal, false) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-        if (FLAG_SET_CMDLINE(BytecodeVerificationRemote, true) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-      } else if (strcmp(tail, ":none") == 0) {
-        if (FLAG_SET_CMDLINE(BytecodeVerificationLocal, false) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-        if (FLAG_SET_CMDLINE(BytecodeVerificationRemote, false) != JVMFlag::SUCCESS) {
-          return JNI_EINVAL;
-        }
-        warning("Options -Xverify:none and -noverify were deprecated in JDK 13 and will likely be removed in a future release.");
-      } else if (is_bad_option(option, args->ignoreUnrecognized, "verification")) {
-        return JNI_EINVAL;
-      }
-    // -Xdebug
-    } else if (match_option(option, "-Xdebug")) {
-      // note this flag has been used, then ignore
-      set_xdebug_mode(true);
-    // -Xnoagent
     } else if (match_option(option, "-Xnoagent")) {
       // For compatibility with classic. HotSpot refuses to load the old style agent.dll.
     } else if (match_option(option, "-Xloggc:", &tail)) {

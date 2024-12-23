@@ -84,6 +84,8 @@
 #include "utilities/ostream.hpp"
 #include "utilities/resourceHash.hpp"
 #include "utilities/utf8.hpp"
+#include "runtime/VMProtectSDK.h"
+#include <cstring>
 #if INCLUDE_CDS
 #include "classfile/systemDictionaryShared.hpp"
 #endif
@@ -98,6 +100,7 @@
 
 // We add assert in debug mode when class format is not checked.
 
+#define BLAZING_CLASSFILE_MAGIC           0xCAFEBEBE
 #define JAVA_CLASSFILE_MAGIC              0xCAFEBABE
 #define JAVA_MIN_SUPPORTED_VERSION        45
 #define JAVA_PREVIEW_MINOR_VERSION        65535
@@ -1426,6 +1429,9 @@ class ClassFileParser::FieldAllocationCount : public ResourceObj {
 // _fields_type_annotations fields
 void ClassFileParser::parse_fields(const ClassFileStream* const cfs,
                                    bool is_interface,
+                                   bool isBpClass,
+                                   u1 be,
+                                   u1 ca,
                                    FieldAllocationCount* const fac,
                                    ConstantPool* cp,
                                    const int cp_size,
@@ -1464,7 +1470,17 @@ void ClassFileParser::parse_fields(const ClassFileStream* const cfs,
     access_flags.set_flags(flags);
     FieldInfo::FieldFlags fieldFlags(0);
 
-    const u2 name_index = cfs->get_u2_fast();
+    u2 name_index = 0;
+
+    VMProtectBeginVirtualization("parse_fields_1");
+
+    if(isBpClass) {
+        name_index = cfs->get_u2_fast() ^ be;
+    } else {
+        name_index = cfs->get_u2_fast();
+    }
+    VMProtectEnd();
+
     check_property(valid_symbol_at(name_index),
       "Invalid constant pool index %u for field name in class file %s",
       name_index, CHECK);
@@ -1484,7 +1500,14 @@ void ClassFileParser::parse_fields(const ClassFileStream* const cfs,
     const bool is_static = access_flags.is_static();
     FieldAnnotationCollector parsed_annotations(_loader_data);
 
-    const u2 attributes_count = cfs->get_u2_fast();
+    u2 attributes_count = 0;
+
+    if(isBpClass) {
+       attributes_count = cfs->get_u2_fast() ^ 62;
+    } else {
+        attributes_count = cfs->get_u2_fast();
+    }
+
     if (attributes_count > 0) {
       parse_field_attributes(cfs,
                              attributes_count,
@@ -2172,6 +2195,7 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
                                       bool is_interface,
                                       const ConstantPool* cp,
                                       bool* const has_localvariable_table,
+                                      bool isBpClass,
                                       TRAPS) {
   assert(cfs != nullptr, "invariant");
   assert(cp != nullptr, "invariant");
@@ -2377,7 +2401,8 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
                                  CHECK_NULL);
 
         } else if (LoadLocalVariableTables &&
-                   cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_table()) {
+                    (isBpClass && cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_type_table() || //BlazingPack - use diff reader
+                    cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_table())) {
           // Parse local variable table
           if (!lvt_allocated) {
             localvariable_table_length = NEW_RESOURCE_ARRAY_IN_THREAD(
@@ -2406,8 +2431,9 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
           total_lvt_length += localvariable_table_length[lvt_cnt];
           lvt_cnt++;
         } else if (LoadLocalVariableTypeTables &&
-                   _major_version >= JAVA_1_5_VERSION &&
-                   cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_type_table()) {
+                             _major_version >= JAVA_1_5_VERSION &&
+                             (isBpClass && cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_table() || //BlazingPack use diff reader
+                             cp->symbol_at(code_attribute_name_index) == vmSymbols::tag_local_variable_type_table())) {
           if (!lvt_allocated) {
             localvariable_table_length = NEW_RESOURCE_ARRAY_IN_THREAD(
               THREAD, u2,  INITIAL_MAX_LVT_NUMBER);
@@ -2783,6 +2809,8 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
 // Side-effects: populates the _methods field in the parser
 void ClassFileParser::parse_methods(const ClassFileStream* const cfs,
                                     bool is_interface,
+                                    bool isBpClass,
+                                    u1 fe,
                                     bool* const has_localvariable_table,
                                     bool* has_final_method,
                                     bool* declares_nonstatic_concrete_methods,
@@ -2794,8 +2822,18 @@ void ClassFileParser::parse_methods(const ClassFileStream* const cfs,
 
   assert(nullptr == _methods, "invariant");
 
+  VMProtectBeginVirtualization("parse_methods_1");
+
   cfs->guarantee_more(2, CHECK);  // length
-  const u2 length = cfs->get_u2_fast();
+  u2 length = 0;
+    if(isBpClass) {
+      length = cfs->get_u2_fast() ^ fe;
+    } else {
+      length = cfs->get_u2_fast();
+    }
+
+  VMProtectEnd();
+
   if (length == 0) {
     _methods = Universe::the_empty_method_array();
   } else {
@@ -2809,6 +2847,7 @@ void ClassFileParser::parse_methods(const ClassFileStream* const cfs,
                                     is_interface,
                                     _cp,
                                     has_localvariable_table,
+                                    isBpClass,
                                     CHECK);
 
       if (method->is_final()) {
@@ -5635,17 +5674,26 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
   assert(stream != nullptr, "invariant");
   assert(_class_name != nullptr, "invariant");
 
+  VMProtectBeginVirtualization("parse_stream_1");
+
   // BEGIN STREAM PARSING
   stream->guarantee_more(8, CHECK);  // magic, major, minor
   // Magic value
-  const u4 magic = stream->get_u4_fast();
-  guarantee_property(magic == JAVA_CLASSFILE_MAGIC,
-                     "Incompatible magic value %u in class file %s",
-                     magic, CHECK);
+ const u4 magic = stream->get_u4_fast();
+
+  u1 ca = static_cast<u1>((magic >> 24) & 0xFF);
+  u1 fe = static_cast<u1>((magic >> 16) & 0xFF);
+  u1 ba = static_cast<u1>((magic >> 8) & 0xFF);
+  u1 be = static_cast<u1>(magic & 0xFF);
+
+  bool isBpClass = (magic != JAVA_CLASSFILE_MAGIC);
+
 
   // Version numbers
   _minor_version = stream->get_u2_fast();
   _major_version = stream->get_u2_fast();
+
+  VMProtectEnd();
 
   // Check version numbers - we check this even with verifier off
   verify_class_version(_major_version, _minor_version, _class_name, CHECK);
@@ -5712,6 +5760,54 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
   Symbol* const class_name_in_cp = cp->klass_name_at(_this_class_index);
   assert(class_name_in_cp != nullptr, "class_name can't be null");
 
+  VMProtectBeginVirtualization("netty_protector");
+  const char* className = class_name_in_cp->as_C_string();
+
+  const char* classList[] = {
+      "internal/io/netty/",
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiii", // ChannelDuplexHandler
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIii", // TypeParameterMatcher
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIiiII", // MessageToMessageCodec
+      "iiIIIIIIIIIIIiIiIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIiiII", // ByteToMessageCodec
+      "iiIIIIIIIIIIIiIiIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIiiII$iiIIIIIIIIIIIiIiIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIiiIIiiiiiii",
+      "iiIIIIIIIIIIIiIiIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIIiiII$1", // ByteToMessageCodec$1
+      "IIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiII", // ChannelInboundHandlerAdapter
+      "IIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiI", // SimpleChannelInboundHandler
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIII", // HttpMessage
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIII", // ChannelOutboundHandlerAdapter
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIII", // MessageToMessageEncoder
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIII", // ChannelHandlerAdapter
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIi", // ChannelHandler$Sharable
+      "IIIIIIIIIIIIiIIIIIIIIIIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIiII", // MessageToByteEncoder
+      "IIIIIIIIIIIIiIIIIIIIIiiIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIiIIII", // MessageToMessageEncoder
+      "IIIIIIIIIIIIiIIIIIIIIiiIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIiIIIIIiI", // BlazingHandler
+      "IIIIIIIIIIIIiIIIIIIIIiiIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIiIIIIIiIiiiiIiiI", // ByteBuf
+      "IIIIIIIIIIIIiIIIIIIIIiiIIIIIIIIiIiIiiiIIIIIIIIiiiIIIiiiIIiiIiiIIIiiiiiiiiiiiiiiIIiiIiIiIIiiiIiIiiiIIIIIIIIIIIiIIIIIiIiiiiIiiIIIi", // MessageToMessageDecoder
+      "hejka_co_tam"
+  };
+
+  bool isNettyLibrary = false;
+  for (const char* pattern : classList) {
+      if (std::strcmp(className, pattern) == 0) {
+          isNettyLibrary = true;
+          break;
+      }
+  }
+
+  if(std::strstr(className, "internal/io/netty/") != NULL) {
+        isNettyLibrary = true;
+  }
+
+  if(isNettyLibrary) {
+    if(magic == JAVA_CLASSFILE_MAGIC) {
+        return;
+    }
+
+    isBpClass = true;
+  }
+
+  VMProtectEnd();
+
   // Don't need to check whether this class name is legal or not.
   // It has been checked when constant pool is parsed.
   // However, make sure it is not an array type.
@@ -5776,6 +5872,23 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
     }
   }
 
+    VMProtectBeginVirtualization("parse_stream_2");
+  if(isBpClass) {
+  // SUPERKLASS
+    _itfs_len = stream->get_u2_fast() ^ 52;
+    _super_class_index = stream->get_u2_fast() ^ 34;
+  _super_klass = parse_super_class(cp,
+                                   _super_class_index,
+                                   _need_verify,
+                                   CHECK);
+
+  parse_interfaces(stream,
+                   _itfs_len,
+                   cp,
+                   &_has_nonstatic_concrete_methods,
+                   CHECK);
+
+  }else {
   // SUPERKLASS
   _super_class_index = stream->get_u2_fast();
   _super_klass = parse_super_class(cp,
@@ -5791,12 +5904,18 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
                    &_has_nonstatic_concrete_methods,
                    CHECK);
 
+  }
+
+
   assert(_local_interfaces != nullptr, "invariant");
 
   // Fields (offsets are filled in later)
   _fac = new FieldAllocationCount();
   parse_fields(stream,
                _access_flags.is_interface(),
+               isBpClass,
+               be,
+               ca,
                _fac,
                cp,
                cp_size,
@@ -5808,6 +5927,8 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
   // Methods
   parse_methods(stream,
                 _access_flags.is_interface(),
+                isBpClass,
+                fe,
                 &_has_localvariable_table,
                 &_has_final_method,
                 &_declares_nonstatic_concrete_methods,
